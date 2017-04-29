@@ -163,7 +163,10 @@ def sensitivity_analysis(param_name, values):
 
 if __name__ == '__main__':
     # sensitivity_analysis('horizon_years', range(4, 12))
-    sensitivity_analysis('opportunity_cost', range(4, 12))
+    sensitivity_analysis('opportunity_cost', range(10000, 160000, 10000))
+    sensitivity_analysis('strike_price', [5e5, 1e6, 2.5e6, 5e6, 1e7, 2.5e7, 5e7, 1e8])
+    sensitivity_analysis('annual_growth', [1 + x/100 for x in range(0, 16, 2)])
+    sensitivity_analysis('annual_volatility', [x/4 for x in range(1, 9)])
 
     # params = FixedHorizonParams(
     #     **COMMON_PARAMS,
