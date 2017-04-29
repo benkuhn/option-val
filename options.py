@@ -26,7 +26,7 @@ class I(namedtuple('IndexBase', 't n_up')):
         return I(self.t + 1, self.n_up)
 
 
-class ParamsBase:
+class ModelBase:
     # company parameters
     initial_valuation = None
     strike_price = None
@@ -38,6 +38,8 @@ class ParamsBase:
     vesting_period = 4  # years
     ownership_fraction = None
     opportunity_cost = None  # annual $ lost from not working at bigco
+    horizon_years = 7
+
 
     def __init__(self, **kwargs):
         self.cache = {}
@@ -56,6 +58,10 @@ class ParamsBase:
     @property
     def ts_vesting_interval(self):
         return self.vesting_period * self.annual_timesteps
+
+    @property
+    def ts_horizon(self):
+        return self.horizon_years * self.annual_timesteps
 
     @property
     def ts_gain(self):
@@ -103,16 +109,10 @@ def memoize(fn):
     return inner
 
 
-class FixedHorizonParams(ParamsBase):
-
-    horizon_years = 7
-
-    @property
-    def ts_horizon(self):
-        return self.horizon_years * self.annual_timesteps
+class FixedHorizonModel(ModelBase):
 
     @memoize
-    def get_payoff(self, i, t_quit, t_vesting_end):
+    def get_payoff(self, i, t_quit=None, t_vesting_end=None):
         """Get the expected payoff from state i, if you quit at time t_quit"""
         assert (t_quit is not None) == (t_vesting_end is not None)
         if i.t == self.ts_vesting_interval and t_quit is None:
@@ -144,18 +144,40 @@ class FixedHorizonParams(ParamsBase):
 
     def get_payoff_if_stay(self, i):
         """Get the expected payoff from state i, if you quit exactly then"""
-        return (self.p_growth * self.get_payoff(i.go_up(), None, None)
-                + self.p_loss * self.get_payoff(i.go_down(), None, None))
+        return (self.p_growth * self.get_payoff(i.go_up())
+                + self.p_loss * self.get_payoff(i.go_down()))
 
 
-params = FixedHorizonParams(
+class NaiveModel(ModelBase):
+    @memoize
+    def get_payoff(self, i):
+        """Get the expected payoff from state i if you can't quit"""
+        if i.t == self.ts_horizon:
+            cost = self.vesting_period * self.opportunity_cost
+            payoff = max(self.get_valuation(i) - self.strike_price, 0)
+            return payoff * self.ownership_fraction - cost
+        else:
+            return (self.p_growth * self.get_payoff(i.go_up())
+                    + self.p_loss * self.get_payoff(i.go_down()))
+
+
+COMMON_PARAMS = dict(
     initial_valuation=2e7,
     strike_price=5e6,
     annual_volatility=1.0,
     annual_timesteps=24,
     ownership_fraction=0.006,
     opportunity_cost=60000,
+)
+
+# params = FixedHorizonParams(
+#     **COMMON_PARAMS,
+#     horizon_years=7
+# )
+
+params = NaiveModel(
+    **COMMON_PARAMS,
     horizon_years=7
 )
 
-print(params.get_payoff(I(0,0), None, None))
+print(params.get_payoff(I(0,0)))
