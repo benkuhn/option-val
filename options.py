@@ -85,40 +85,35 @@ class ModelBase:
 class FixedHorizonModel(ModelBase):
 
     @memoize
-    def get_payoff(self, i, t_quit=None, t_vesting_end=None):
-        """Get the expected payoff from state i, if you quit at time t_quit"""
-        assert (t_quit is not None) == (t_vesting_end is not None)
-        if i.t == self.ts_vesting_interval and t_quit is None:
-            # The trade you got in your offer is over now, so pretend you
-            # stopped working. In reality, you'll probably be offered more
-            # trades at this point (via refresher grants) so this
-            # underestimates the value of the initial trade.
-            return self.get_payoff(i, i.t, i.t)
+    def get_payoff(self, i, t_quit=None):
+        """Get the expected payoff from state i, if you quit exactly then"""
+        if t_quit is None:
+            # We haven't quit yet. Should we quit now?
+            payoff_if_quit = self.get_payoff(i, i.t)
+            if i.t == self.ts_vesting_interval:
+                # The trade you got in your offer is over now, so pretend you
+                # stopped working. In reality, you'll probably be offered more
+                # trades at this point (via refresher grants) so this
+                # underestimates the value of the initial trade.
+                return payoff_if_quit
+            payoff_if_stay = (self.p_growth * self.get_payoff(i.go_up())
+                              + self.p_loss * self.get_payoff(i.go_down()))
+            return max(payoff_if_stay, payoff_if_quit)
         elif i.t == self.ts_horizon:
             # TODO(ben): apply time discounting the opportunity cost
             cost = t_quit * self.ts_opportunity_cost
+            # vesting ends at the last "vesting increment"
+            t_vesting_end = max(t for t in self.ts_vesting_increments if t <= t_quit)
             vested_fraction = t_vesting_end / self.ts_vesting_interval
 
-            # extrapolate the payoff to the end of the horizon
+            # exercise iff valuation > strike at time horizon
             full_payoff = max(self.get_valuation(i) - self.strike_price, 0)
             return full_payoff * self.ownership_fraction * vested_fraction - cost
-        elif t_quit is not None:
-            # we already quit, so just run through to the end
-            return (self.p_growth * self.get_payoff(i.go_up(), t_quit, t_vesting_end)
-                    + self.p_loss * self.get_payoff(i.go_down(), t_quit, t_vesting_end))
         else:
-            return max(self.get_payoff_if_quit(i), self.get_payoff_if_stay(i))
-
-    def get_payoff_if_quit(self, i):
-        """Get the expected payoff from state i, if you quit exactly then"""
-        # vesting ends at the last "vesting increment"
-        t_vesting_end = max(t for t in self.ts_vesting_increments if t <= i.t)
+            # we already quit so just run through the end
+            return (self.p_growth * self.get_payoff(i.go_up(), t_quit)
+                    + self.p_loss * self.get_payoff(i.go_down(), t_quit))
         return self.get_payoff(i, i.t, t_vesting_end)
-
-    def get_payoff_if_stay(self, i):
-        """Get the expected payoff from state i, if you quit exactly then"""
-        return (self.p_growth * self.get_payoff(i.go_up())
-                + self.p_loss * self.get_payoff(i.go_down()))
 
 
 class NaiveModel(ModelBase):
