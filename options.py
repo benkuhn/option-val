@@ -74,7 +74,7 @@ class ModelBase:
         # vesting increments
         cliff = self.annual_timesteps
         end = self.ts_vesting_interval
-        month_len = self.annual_timesteps // 12
+        month_len = max(1, self.annual_timesteps // 12)
         self.ts_vesting_increments = [0] + list(range(cliff, end + 1, month_len))
 
     def get_valuation(self, i):
@@ -132,8 +132,9 @@ class NaiveModel(ModelBase):
 COMMON_PARAMS = dict(
     initial_valuation=2e7,
     strike_price=5e6,
-    annual_volatility=0.54,
-    annual_timesteps=24,
+    # empirically, the difference between the values with 12 and 24 timestamps
+    # is a few percentage points and 12 is way faster than 24
+    annual_timesteps=12,
     ownership_fraction=0.006,
     opportunity_cost=60000,
     horizon_years=7,
