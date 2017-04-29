@@ -26,6 +26,17 @@ class I(namedtuple('IndexBase', 't n_up')):
         return I(self.t + 1, self.n_up)
 
 
+def memoize(fn):
+    """Memoize a method of the Params subclass, for dynamic programming"""
+    # inval the cache bc we're probably redefining a function
+    def inner(self, *args):
+        cache = self.cache.setdefault(fn.__name__, {})
+        if args not in cache:
+            cache[args] = fn(self, *args)
+        return cache[args]
+    return inner
+
+
 class ModelBase:
     # company parameters
     initial_valuation = None
@@ -47,66 +58,29 @@ class ModelBase:
             assert hasattr(self, k)
             setattr(self, k, v)
 
-    @property
-    def ts_volatility(self):
-        return self.annual_volatility / np.sqrt(self.annual_timesteps)
-
-    @property
-    def ts_growth(self):
-        return self.annual_growth ** (1/self.annual_timesteps)
-
-    @property
-    def ts_vesting_interval(self):
-        return self.vesting_period * self.annual_timesteps
-
-    @property
-    def ts_horizon(self):
-        return self.horizon_years * self.annual_timesteps
-
-    @property
-    def ts_gain(self):
-        """Amount the valuation goes up per one 'up' timestep"""
+        self.ts_volatility = self.annual_volatility / np.sqrt(self.annual_timesteps)
+        # Amount the valuation goes up per one 'up' timestep
         # Source: http://www.maths.usyd.edu.au/u/UG/SM/MATH3075/r/Slides_7_Binomial_Market_Model.pdf
-        return np.exp(self.ts_volatility)
-
-    @property
-    def ts_loss(self):
-        return 1/self.ts_gain
-
-    @property
-    def ts_opportunity_cost(self):
-        return self.opportunity_cost / self.annual_timesteps
-
-    @property
-    def p_growth(self):
-        """Probability that each timestep is an 'up' timestep"""
+        self.ts_gain = np.exp(self.ts_volatility)
+        self.ts_growth = self.annual_growth ** (1/self.annual_timesteps)
+        self.ts_vesting_interval = self.vesting_period * self.annual_timesteps
+        self.ts_horizon = self.horizon_years * self.annual_timesteps
+        self.ts_loss = 1/self.ts_gain
+        self.ts_opportunity_cost = self.opportunity_cost / self.annual_timesteps
+        # Probability that each timestep is an 'up' timestep
         # Source: http://www.maths.usyd.edu.au/u/UG/SM/MATH3075/r/Slides_7_Binomial_Market_Model.pdf
-        return (self.ts_growth - self.ts_loss) / (self.ts_gain - self.ts_loss)
+        self.p_growth = (self.ts_growth - self.ts_loss) / (self.ts_gain - self.ts_loss)
+        self.p_loss = 1 - self.p_growth
 
-    @property
-    def ts_vesting_increments(self):
+        # vesting increments
         cliff = self.annual_timesteps
         end = self.ts_vesting_interval
         month_len = self.annual_timesteps // 12
-        return [0] + list(range(cliff, end + 1, month_len))
-
-    @property
-    def p_loss(self):
-        return 1 - self.p_growth
+        self.ts_vesting_increments = [0] + list(range(cliff, end + 1, month_len))
 
     def get_valuation(self, i):
         """Return the valuation of the company at node i"""
         return self.initial_valuation * self.ts_gain ** (i.n_up - i.n_down)
-
-
-def memoize(fn):
-    """Memoize a method of the Params subclass, for dynamic programming"""
-    # inval the cache bc we're probably redefining a function
-    def inner(self, *args):
-        if args not in self.cache:
-            self.cache[args] = fn(self, *args)
-        return self.cache[args]
-    return inner
 
 
 class FixedHorizonModel(ModelBase):
@@ -164,20 +138,19 @@ class NaiveModel(ModelBase):
 COMMON_PARAMS = dict(
     initial_valuation=2e7,
     strike_price=5e6,
-    annual_volatility=1.0,
+    annual_volatility=0.54,
     annual_timesteps=24,
     ownership_fraction=0.006,
     opportunity_cost=60000,
+    horizon_years=7,
 )
 
 # params = FixedHorizonParams(
 #     **COMMON_PARAMS,
-#     horizon_years=7
 # )
 
-params = NaiveModel(
+params = FixedHorizonModel(
     **COMMON_PARAMS,
-    horizon_years=7
 )
 
 print(params.get_payoff(I(0,0)))
