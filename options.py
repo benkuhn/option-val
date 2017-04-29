@@ -1,8 +1,7 @@
 from collections import namedtuple
 from decimal import Decimal as D
-import numpy as np
-import scipy as sp
 import datetime
+import math
 
 class I(namedtuple('IndexBase', 't n_up')):
     """Index into the lattice of option states.
@@ -58,10 +57,10 @@ class ModelBase:
             assert hasattr(self, k)
             setattr(self, k, v)
 
-        self.ts_volatility = self.annual_volatility / np.sqrt(self.annual_timesteps)
+        self.ts_volatility = self.annual_volatility / math.sqrt(self.annual_timesteps)
         # Amount the valuation goes up per one 'up' timestep
         # Source: http://www.maths.usyd.edu.au/u/UG/SM/MATH3075/r/Slides_7_Binomial_Market_Model.pdf
-        self.ts_gain = np.exp(self.ts_volatility)
+        self.ts_gain = math.exp(self.ts_volatility)
         self.ts_growth = self.annual_growth ** (1/self.annual_timesteps)
         self.ts_vesting_interval = self.vesting_period * self.annual_timesteps
         self.ts_horizon = self.horizon_years * self.annual_timesteps
