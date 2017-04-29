@@ -105,26 +105,30 @@ def memoize(fn):
 
 class FixedHorizonParams(ParamsBase):
 
-    horizon = 7
+    horizon_years = 7
 
     @property
-    def ts_sim_interval(self):
-        return self.horizon * self.annual_timesteps
+    def ts_horizon(self):
+        return self.horizon_years * self.annual_timesteps
 
     @memoize
     def get_payoff(self, i, t_quit, t_vesting_end):
         """Get the expected payoff from state i, if you quit at time t_quit"""
         assert (t_quit is not None) == (t_vesting_end is not None)
-        if i.t == self.ts_vesting_interval:
-            # pretend we exercise at the end of the vesting period
-            ts_vesting = i.t if t_vesting_end is None else t_vesting_end
-            ts_working = i.t if t_quit is None else t_quit
+        if i.t == self.ts_vesting_interval and t_quit is None:
+            # The trade you got in your offer is over now, so pretend you
+            # stopped working. In reality, you'll probably be offered more
+            # trades at this point (via refresher grants) so this
+            # underestimates the value of the initial trade.
+            return self.get_payoff(i, i.t, i.t)
+        elif i.t == self.ts_horizon:
             # TODO(ben): apply time discounting the opportunity cost
-            cost = ts_working * self.ts_opportunity_cost
+            cost = t_quit * self.ts_opportunity_cost
+            vested_fraction = t_vesting_end / self.ts_vesting_interval
 
             # extrapolate the payoff to the end of the horizon
             full_payoff = max(self.get_valuation(i) - self.strike_price, 0)
-            return full_payoff * self.ownership_fraction * (ts_vesting / self.ts_vesting_interval) - cost
+            return full_payoff * self.ownership_fraction * vested_fraction - cost
         elif t_quit is not None:
             # we already quit, so just run through to the end
             return (self.p_growth * self.get_payoff(i.go_up(), t_quit, t_vesting_end)
@@ -150,7 +154,8 @@ params = FixedHorizonParams(
     annual_volatility=1.0,
     annual_timesteps=24,
     ownership_fraction=0.006,
-    opportunity_cost=60000
+    opportunity_cost=60000,
+    horizon_years=7
 )
 
 print(params.get_payoff(I(0,0), None, None))
