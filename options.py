@@ -2,6 +2,7 @@ from collections import namedtuple
 from decimal import Decimal as D
 import datetime
 import math
+import csv
 
 class I(namedtuple('IndexBase', 't n_up')):
     """Index into the lattice of option states.
@@ -63,7 +64,7 @@ class ModelBase:
         self.ts_gain = math.exp(self.ts_volatility)
         self.ts_growth = self.annual_growth ** (1/self.annual_timesteps)
         self.ts_vesting_interval = self.vesting_period * self.annual_timesteps
-        self.ts_horizon = self.horizon_years * self.annual_timesteps
+        self.ts_horizon = int(self.horizon_years * self.annual_timesteps)
         self.ts_loss = 1/self.ts_gain
         self.ts_opportunity_cost = self.opportunity_cost / self.annual_timesteps
         # Probability that each timestep is an 'up' timestep
@@ -130,22 +131,48 @@ class NaiveModel(ModelBase):
 
 
 COMMON_PARAMS = dict(
-    initial_valuation=2e7,
-    strike_price=5e6,
+    initial_valuation=1e7,
+    strike_price=2.5e6,
     # empirically, the difference between the values with 12 and 24 timestamps
     # is a few percentage points and 12 is way faster than 24
     annual_timesteps=12,
-    ownership_fraction=0.006,
-    opportunity_cost=60000,
+    ownership_fraction=0.01,
+    opportunity_cost=50000,
+    annual_volatility=1.0,
     horizon_years=7,
 )
 
-# params = FixedHorizonParams(
-#     **COMMON_PARAMS,
-# )
+def sensitivity_analysis(param_name, values):
+    print('Analyzing sensitivity to', param_name)
+    ROW_TEMPLATE = '% 20s% 15s% 15s'
+    with open(param_name + '.csv', 'w') as out:
+        w = csv.DictWriter(out, [param_name, 'naive', 'fixed_horizon'])
+        w.writeheader()
+        print(ROW_TEMPLATE % (param_name, 'naive', 'fixed_horizon'))
+        for value in values:
+            params = dict(COMMON_PARAMS)
+            params[param_name] = value
+            naive_val = NaiveModel(**params).get_payoff(I(0, 0))
+            fh_val = FixedHorizonModel(**params).get_payoff(I(0, 0))
+            print(ROW_TEMPLATE % (value, int(naive_val), int(fh_val)))
+            w.writerow({
+                param_name: value,
+                'naive': naive_val,
+                'fixed_horizon': fh_val,
+            })
 
-params = FixedHorizonModel(
-    **COMMON_PARAMS,
-)
+if __name__ == '__main__':
+    # sensitivity_analysis('horizon_years', range(4, 12))
+    sensitivity_analysis('opportunity_cost', range(4, 12))
 
-print(params.get_payoff(I(0,0)))
+    # params = FixedHorizonParams(
+    #     **COMMON_PARAMS,
+    # )
+
+    # params = FixedHorizonModel(
+    #     **COMMON_PARAMS,
+    # )
+
+    # print(params.get_payoff(I(0,0)))
+
+    # print(NaiveModel(**COMMON_PARAMS).get_payoff(I(0,0)))
