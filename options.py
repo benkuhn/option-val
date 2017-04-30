@@ -25,6 +25,12 @@ class I(namedtuple('IndexBase', 't n_up')):
     def go_down(self):
         return I(self.t + 1, self.n_up)
 
+    def go_back_up(self):
+        return I(self.t - 1, self.n_up)
+
+    def go_back_down(self):
+        return I(self.t - 1, self.n_up - 1)
+
 
 def memoize(fn):
     """Memoize a method of the Params subclass, for dynamic programming"""
@@ -82,6 +88,17 @@ class ModelBase:
         """Return the valuation of the company at node i"""
         return self.initial_valuation * self.ts_gain ** (i.n_up - i.n_down)
 
+    @memoize
+    def get_p_n_up(self, i):
+        """Return p(n_up = i.n_up | t = i.t)"""
+        if i.t == 0:
+            return 1
+        p = 0
+        if i.n_up > 0:
+            p += self.get_p_n_up(i.go_back_down()) * self.p_growth
+        if i.n_up < i.t:
+            p += self.get_p_n_up(i.go_back_up()) * self.p_loss
+        return p
 
 class FixedHorizonModel(ModelBase):
 
@@ -115,6 +132,31 @@ class FixedHorizonModel(ModelBase):
             return (self.p_growth * self.get_payoff(i.go_up(), t_quit)
                     + self.p_loss * self.get_payoff(i.go_down(), t_quit))
         return self.get_payoff(i, i.t, t_vesting_end)
+
+    @memoize
+    def p_quit_before_or_at(self, i):
+        """Return P(have quit already | t = i.t, n_up = i.n_up)"""
+        if i.t == 0:
+            return 0
+        if (i.t >= self.ts_vesting_interval
+            or self.get_payoff(i, i.t) >= self.get_payoff(i)):
+            # if we should quit here, then we'll always have quit before-or-at once
+            # we get here
+            return 1.0
+        if i.n_up == 0:
+            return self.p_quit_before_or_at(i.go_back_up())
+        if i.n_up == i.t:
+            return self.p_quit_before_or_at(i.go_back_down())
+        # if we're here, then we either came from (t-1, n_up) or (t-1, n_up-1),
+        # weighted in proportion to their absolute probabilities. So the
+        # probability we've quit is the weighted
+        i_up = i.go_back_up()
+        i_dn = i.go_back_down()
+        p1 = self.get_p_n_up(i_up)
+        val1 = self.p_quit_before_or_at(i_up)
+        p2 = self.get_p_n_up(i_dn)
+        val2 = self.p_quit_before_or_at(i_dn)
+        return (p1 * val1 + p2 * val2) / (p1 + p2)
 
 
 class NaiveModel(ModelBase):
@@ -165,7 +207,7 @@ if __name__ == '__main__':
     # sensitivity_analysis('horizon_years', range(4, 12))
     sensitivity_analysis('opportunity_cost', range(10000, 160000, 10000))
     sensitivity_analysis('strike_price', [5e5, 1e6, 2.5e6, 5e6, 1e7, 2.5e7, 5e7, 1e8])
-    sensitivity_analysis('annual_growth', [1 + x/100 for x in range(0, 16, 2)])
+    sensitivity_analysis('annual_growth', [1 + x/100 for x in range(0, 17, 2)])
     sensitivity_analysis('annual_volatility', [x/4 for x in range(1, 9)])
 
     # params = FixedHorizonParams(
