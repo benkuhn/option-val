@@ -46,15 +46,16 @@ def memoize(fn):
 class ModelBase:
     # company parameters
     initial_valuation = None
-    strike_price = None
-    annual_volatility = 0.54  # 2x S&P 500 annual vol
-    annual_growth = 1.08  # long run growth rate of equities
+    strike_price = None          # strike price of an option on the entire company
+    annual_volatility = 0.54     # 2x S&P 500 annual vol
+    annual_growth = 1.08         # long run growth rate of equities
+    annual_discount_rate = 1.02  # discount rate
     # numerics parameters
     annual_timesteps = 12
     # offer parameters
-    vesting_period = 4  # years
+    vesting_period = 4           # years
     ownership_fraction = None
-    opportunity_cost = None  # annual $ lost from not working at bigco
+    opportunity_cost = None      # annual $ lost from not working at bigco
     horizon_years = 7
 
 
@@ -69,6 +70,7 @@ class ModelBase:
         # Source: http://www.maths.usyd.edu.au/u/UG/SM/MATH3075/r/Slides_7_Binomial_Market_Model.pdf
         self.ts_gain = math.exp(self.ts_volatility)
         self.ts_growth = self.annual_growth ** (1/self.annual_timesteps)
+        self.ts_discount_rate = self.annual_discount_rate ** (1/self.annual_timesteps)
         self.ts_vesting_interval = self.vesting_period * self.annual_timesteps
         self.ts_horizon = int(self.horizon_years * self.annual_timesteps)
         self.ts_loss = 1/self.ts_gain
@@ -100,6 +102,23 @@ class ModelBase:
             p += self.get_p_n_up(i.go_back_up()) * self.p_loss
         return p
 
+    @memoize
+    def get_opportunity_cost(self, t_quit):
+        if t_quit == 0:
+            return 0
+        return (
+            self.get_opportunity_cost(t_quit - 1)
+            + self.ts_opportunity_cost / self.ts_discount_rate ** t_quit)
+
+    def get_full_discounted_payoff_at_exercise(self, i):
+        # exercise iff valuation > strike at time horizon
+        exercise_payoff = max(self.get_valuation(i) - self.strike_price, 0)
+        return (
+            exercise_payoff
+            * self.ownership_fraction
+            / self.ts_discount_rate ** i.t
+        )
+
 class FixedHorizonModel(ModelBase):
 
     @memoize
@@ -118,15 +137,13 @@ class FixedHorizonModel(ModelBase):
                               + self.p_loss * self.get_payoff(i.go_down()))
             return max(payoff_if_stay, payoff_if_quit)
         elif i.t == self.ts_horizon:
-            # TODO(ben): apply time discounting the opportunity cost
-            cost = t_quit * self.ts_opportunity_cost
+            cost = self.get_opportunity_cost(t_quit)
             # vesting ends at the last "vesting increment"
             t_vesting_end = max(t for t in self.ts_vesting_increments if t <= t_quit)
             vested_fraction = t_vesting_end / self.ts_vesting_interval
 
-            # exercise iff valuation > strike at time horizon
-            full_payoff = max(self.get_valuation(i) - self.strike_price, 0)
-            return full_payoff * self.ownership_fraction * vested_fraction - cost
+            full_payoff = self.get_full_discounted_payoff_at_exercise(i)
+            return full_payoff * vested_fraction - cost
         else:
             # we already quit so just run through the end
             return (self.p_growth * self.get_payoff(i.go_up(), t_quit)
@@ -164,9 +181,9 @@ class NaiveModel(ModelBase):
     def get_payoff(self, i):
         """Get the expected payoff from state i if you can't quit"""
         if i.t == self.ts_horizon:
-            cost = self.vesting_period * self.opportunity_cost
-            payoff = max(self.get_valuation(i) - self.strike_price, 0)
-            return payoff * self.ownership_fraction - cost
+            cost = self.get_opportunity_cost(self.ts_vesting_interval)
+            payoff = self.get_full_discounted_payoff_at_exercise(i)
+            return payoff - cost
         else:
             return (self.p_growth * self.get_payoff(i.go_up())
                     + self.p_loss * self.get_payoff(i.go_down()))
@@ -204,20 +221,12 @@ def sensitivity_analysis(param_name, values):
             })
 
 if __name__ == '__main__':
-    # sensitivity_analysis('horizon_years', range(4, 12))
+    print('Naive:', NaiveModel(**COMMON_PARAMS).get_payoff(I(0,0)))
+    print('Metaopt:', FixedHorizonModel(**COMMON_PARAMS).get_payoff(I(0,0)))
+
+    sensitivity_analysis('horizon_years', range(4, 13))
     sensitivity_analysis('opportunity_cost', range(10000, 160000, 10000))
     sensitivity_analysis('strike_price', [5e5, 1e6, 2.5e6, 5e6, 1e7, 2.5e7, 5e7, 1e8])
     sensitivity_analysis('annual_growth', [1 + x/100 for x in range(0, 17, 2)])
     sensitivity_analysis('annual_volatility', [x/4 for x in range(1, 9)])
-
-    # params = FixedHorizonParams(
-    #     **COMMON_PARAMS,
-    # )
-
-    # params = FixedHorizonModel(
-    #     **COMMON_PARAMS,
-    # )
-
-    # print(params.get_payoff(I(0,0)))
-
-    # print(NaiveModel(**COMMON_PARAMS).get_payoff(I(0,0)))
+    sensitivity_analysis('annual_discount_rate', [1 + x/100 for x in range(0, 6)])
