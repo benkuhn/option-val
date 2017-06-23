@@ -1,6 +1,6 @@
 # Scripts for modeling the value of vesting stock options
 
-These scripts provide the Python source code for the model in [this blog post](http://benkuhn.net/optopt/), which compares the expected value of a job offer from a startup (with stock options and lower cash compensation) to that from a big company.
+These scripts provide the Python source code for the model in [this blog post](http://benkuhn.net/optopt), which compares the expected value of a job offer from a startup (with stock options and lower cash compensation) to that from a big company.
 
 If you want to use this to look at your own offer, here's where to go:
 
